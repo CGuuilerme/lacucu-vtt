@@ -1084,3 +1084,89 @@ button:focus-visible {
 .tokenRoster .removeToken { margin-left: auto; padding: 10px; border-color: #8d574a; background: #39211e; color: #efb6a9; }
 @media (max-width: 680px) { .mapPanel { padding: 16px; } .mapTools { width: 100%; } .mapUpload { flex: 1; } }
 @media (max-width: 370px) { .itemActions { grid-template-columns: 1fr; } .itemActions p { grid-column: auto; } }
+
+/* Version 0.5: map-first tabletop */
+.gameWindow { width: min(calc(100vw - 24px), 1680px); }
+.gamePage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-areas: "heading heading" "map controls" "inventory inventory" "error error";
+  align-items: start;
+  gap: 18px;
+  padding: 22px;
+}
+.gameHeading { grid-area: heading; align-items: center; margin: 0; padding: 0 0 16px; }
+.gameHeading h2 { font-size: clamp(25px, 3vw, 36px); }
+.gameHeading p { margin-top: 5px; }
+.gameGrid { grid-area: controls; display: flex; flex-direction: column; gap: 15px; min-width: 0; }
+.gameSidebar { display: block; }
+.gameMain { display: flex; flex-direction: column; gap: 15px; }
+.dicePanel { margin: 0; }
+.chatHistory { min-height: 180px; max-height: 300px; }
+.gamePage > .formError { grid-area: error; margin: 0; }
+.gamePage .mapPanel { grid-area: map; min-width: 0; min-height: calc(100vh - 175px); min-height: calc(100svh - 175px); display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 18px; }
+.mapHeader { align-items: center; margin: 0; }
+.mapHeader p { max-width: 650px; }
+.mapNav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px; border: 1px solid #4d3d2c; border-radius: 5px; background: #151718; }
+.mapNav button { min-height: 34px; padding: 6px 11px; border: 1px solid transparent; border-radius: 4px; background: #252420; color: #c1b5a4; cursor: pointer; font-size: 12px; }
+.mapNav button:hover, .mapNav button.active { border-color: #a57d47; background: #49351f; color: #f3d39b; }
+.mapNav button:focus-visible, .itemCreator button:focus-visible { outline: 2px solid #eac27d; outline-offset: 2px; }
+.mapNavDivider { height: 21px; margin-inline: 4px; border-left: 1px solid #5d4b35; }
+.zoomValue { min-width: 46px; text-align: center; color: #c8b598; font-size: 12px; }
+.mapViewport {
+  display: grid; place-items: center; flex: 1; min-width: 0;
+  min-height: clamp(440px, calc(100vh - 360px), 900px);
+  min-height: clamp(440px, calc(100svh - 360px), 900px);
+  overflow: hidden; position: relative;
+  border: 1px solid #6b5234; border-radius: 5px;
+  background-color: #171c1c;
+  background-image: linear-gradient(#b29a6e15 1px, transparent 1px), linear-gradient(90deg, #b29a6e15 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+.mapViewport.panMode { cursor: grab; touch-action: none; }
+.mapViewport.panMode:active { cursor: grabbing; }
+.mapViewport.panMode .mapStage { pointer-events: none; }
+.mapViewport .mapStage { width: 100%; border-radius: 2px; transition: box-shadow .15s; }
+.mapGridOverlay { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(#f7dfad70 1px, transparent 1px), linear-gradient(90deg, #f7dfad70 1px, transparent 1px); background-size: 50px 50px; box-shadow: inset 0 0 0 1px #f7dfad70; }
+.mapViewport .mapEmpty { width: 100%; min-height: 100%; border: 0; border-radius: 0; }
+.tokenRoster { margin-top: 0; }
+.gamePage .inventoryPanel { grid-area: inventory; margin: 0; }
+.itemCreator { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 21px; padding: 17px; border: 1px solid #775938; border-radius: 5px; background: linear-gradient(125deg, #292318, #1b1c1c); }
+.itemCreatorTitle { grid-column: 1 / -1; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid #5b4932; }
+.itemCreatorTitle strong { color: #e3c18b; font: 400 21px Georgia, serif; }
+.itemCreatorTitle span { color: #a99a83; font-size: 12px; }
+.itemCreator label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: #c3b49e; font-size: 11px; letter-spacing: .3px; }
+.itemCreator .creatorWide { grid-column: span 2; }
+.itemCreator input, .itemCreator select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #625039; border-radius: 4px; outline: 0; background: #151718; color: #f0e6d8; font-size: 13px; }
+.itemCreator input:focus, .itemCreator select:focus { border-color: #d4a35f; }
+.createItemButton { align-self: end; min-height: 40px; border: 1px solid #bc9255; border-radius: 4px; background: linear-gradient(#b58a4f, #7e5b2f); color: #1c1309; cursor: pointer; font-weight: 800; }
+.createItemButton:disabled { opacity: .5; cursor: not-allowed; }
+.emptyInventory, .itemDescription { margin: 14px 0; color: #a79a89; font-size: 12px; line-height: 1.5; }
+.itemDescription { padding: 10px 12px; border-left: 2px solid #b38850; background: #28231c; }
+.removeItemButton { min-height: 42px; padding: 8px; border: 1px solid #8d574a; border-radius: 4px; background: #39211e; color: #efb6a9; cursor: pointer; }
+.removeItemButton:disabled { opacity: .45; cursor: not-allowed; }
+.inventoryDetails li span:last-child { flex-shrink: 0; }
+@media (max-width: 980px) {
+  .gamePage { grid-template-columns: minmax(0, 1fr); grid-template-areas: "heading" "map" "controls" "inventory" "error"; }
+  .gamePage .mapPanel { min-height: 0; }
+  .mapViewport { min-height: 55vh; min-height: 55svh; }
+  .gameGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gameSidebar { display: block; }
+}
+@media (max-width: 680px) {
+  .gameWindow { width: min(calc(100vw - 12px), 680px); }
+  .gamePage { padding: 14px; gap: 14px; }
+  .gamePage .mapPanel { padding: 13px; }
+  .gameGrid { display: flex; flex-direction: column; }
+  .gameSidebar { display: block; }
+  .mapViewport { min-height: 52vh; min-height: 52svh; }
+  .mapNav button { padding-inline: 8px; }
+  .itemCreator { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
+}
+@media (max-width: 430px) {
+  .itemCreator { grid-template-columns: 1fr; }
+  .itemCreator .creatorWide { grid-column: auto; }
+  .mapTools { flex-direction: column; }
+  .mapNavDivider { display: none; }
+  .mapViewport { min-height: 46vh; min-height: 46svh; }
+}

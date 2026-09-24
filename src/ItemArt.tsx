@@ -1,4 +1,4 @@
-type ItemKind = 'sword' | 'shield' | 'potion' | 'scroll'
+type ItemKind = 'sword' | 'shield' | 'potion' | 'scroll' | 'misc'
 
 export function ItemArt({ kind }: { kind: ItemKind }) {
   if (kind === 'sword') return (
@@ -25,12 +25,20 @@ export function ItemArt({ kind }: { kind: ItemKind }) {
       <path d="m40 39 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1 3-6Z" fill="#FFD99C" />
     </svg>
   )
-  return (
+  if (kind === 'scroll') return (
     <svg viewBox="0 0 80 80" fill="none" aria-hidden="true">
       <path d="M19 14h44v51H19z" fill="#B89A6A" stroke="#E7D2A3" strokeWidth="3" />
       <path d="M25 10h7v60h-7a7 7 0 0 1-7-7V17a7 7 0 0 1 7-7ZM63 10h-7v60h7a7 7 0 0 0 7-7V17a7 7 0 0 0-7-7Z" fill="#D4B781" stroke="#F1D6A1" strokeWidth="2" />
       <path d="m44 23 5 9 10 1-7 7 2 10-10-5-10 5 2-10-7-7 10-1 5-9Z" fill="#587B77" stroke="#345653" strokeWidth="2" />
       <path d="M35 57h18" stroke="#6C5438" strokeWidth="2" />
+    </svg>
+  )
+  return (
+    <svg viewBox="0 0 80 80" fill="none" aria-hidden="true">
+      <path d="m40 8 27 23-9 35H22L13 31 40 8Z" fill="#73998C" stroke="#D7BD7A" strokeWidth="3" />
+      <path d="m40 15 19 17-6 27H27l-6-27 19-17Z" fill="#2D5153" />
+      <path d="m40 15-5 17 5 27 5-27-5-17ZM21 32h38M27 59l8-27m18 27-8-27" stroke="#9BC7B5" strokeWidth="2" />
+      <circle cx="40" cy="38" r="6" fill="#E6C477" />
     </svg>
   )
 }

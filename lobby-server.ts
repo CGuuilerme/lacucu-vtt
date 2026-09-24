@@ -3,8 +3,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 
 type Role = 'master' | 'player'
-type ItemKind = 'sword' | 'shield' | 'potion' | 'scroll'
-type InventoryItem = { id: string; kind: ItemKind; name: string; icon: string; x: number; y: number; width: number; height: number }
+type ItemKind = 'sword' | 'shield' | 'potion' | 'scroll' | 'misc'
+type ItemEffect = 'none' | 'roll' | 'heal'
+type InventoryItem = { id: string; kind: ItemKind; name: string; description: string; effect: ItemEffect; power: number; uses: number; x: number; y: number; width: number; height: number }
 type Member = { id: string; name: string; role: Role; hp: number; items: InventoryItem[]; avatarId?: string }
 type GameEvent = { id: string; kind: 'chat' | 'roll' | 'system'; name: string; text: string; time: number }
 type MapToken = { id: string; name: string; assetId: string; x: number; y: number }
@@ -26,15 +27,6 @@ type Room = {
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const rooms = new Map<string, Room>()
 const allowedDice = new Set([4, 6, 8, 10, 12, 20, 100])
-
-function starterItems(): InventoryItem[] {
-  return [
-    { id: randomUUID(), kind: 'sword', name: 'Espada', icon: '⚔', x: 0, y: 0, width: 1, height: 3 },
-    { id: randomUUID(), kind: 'shield', name: 'Escudo', icon: '◈', x: 2, y: 0, width: 2, height: 2 },
-    { id: randomUUID(), kind: 'potion', name: 'Poção', icon: '✦', x: 5, y: 0, width: 1, height: 1 },
-    { id: randomUUID(), kind: 'scroll', name: 'Pergaminho', icon: '▤', x: 4, y: 2, width: 1, height: 2 },
-  ]
-}
 
 function overlaps(a: InventoryItem, b: InventoryItem) {
   return a.x < b.x + b.width && a.x + a.width > b.x &&
@@ -206,7 +198,7 @@ export async function roomMiddleware(req: IncomingMessage, res: ServerResponse, 
       return upload(req, res, url, room, room.members.get(clientId)!, uploadMatch[2])
     }
 
-    const roomMatch = /^\/api\/rooms\/([A-Z0-9]{5})(?:\/(join|leave|start|chat|roll|hp|inventory|token))?$/.exec(url.pathname)
+    const roomMatch = /^\/api\/rooms\/([A-Z0-9]{5})(?:\/(join|leave|start|chat|roll|hp|inventory|token|item))?$/.exec(url.pathname)
     if (!roomMatch) return sendJson(res, 404, { error: 'Sala não encontrada.' })
     const [, code, action] = roomMatch
     const room = rooms.get(code)
@@ -219,7 +211,7 @@ export async function roomMiddleware(req: IncomingMessage, res: ServerResponse, 
       const existing = room.members.get(id)
       if (!existing && room.phase === 'game') return sendJson(res, 409, { error: 'A aventura já começou.' })
       if (!existing && [...room.members.values()].filter(member => member.role === 'player').length >= 3) return sendJson(res, 409, { error: 'A sala já tem três jogadores.' })
-      if (!existing) room.members.set(id, { id, name: (body!.playerName as string).trim(), role: 'player', hp: 10, items: starterItems() })
+      if (!existing) room.members.set(id, { id, name: (body!.playerName as string).trim(), role: 'player', hp: 10, items: [] })
       keepMember(room, id)
       return sendJson(res, 200, snapshot(room))
     }
@@ -255,24 +247,76 @@ export async function roomMiddleware(req: IncomingMessage, res: ServerResponse, 
       addEvent(room, 'roll', member.name, `rolou 1d${sides}: ${randomInt(1, sides + 1)}`)
       return sendJson(res, 200, snapshot(room))
     }
-    if (action === 'inventory') {
-      if (member.role !== 'player') return sendJson(res, 403, { error: 'O Mestre não tem inventário.' })
-      const item = member.items.find(entry => entry.id === body?.itemId)
-      if (!item) return sendJson(res, 403, { error: 'Você só pode usar ou organizar seu próprio inventário.' })
-      if (body?.op === 'use') {
-        if (item.kind === 'potion') {
-          if (member.hp >= 10) return sendJson(res, 409, { error: 'Seus PV já estão completos.' })
-          const healed = Math.min(2, 10 - member.hp)
-          member.hp += healed
-          addEvent(room, 'system', member.name, `usou uma Poção e recuperou ${healed} PV.`)
-        } else if (item.kind === 'sword') {
-          addEvent(room, 'roll', member.name, `atacou com a Espada: 1d20 = ${randomInt(1, 21)}.`)
-        } else if (item.kind === 'shield') {
-          addEvent(room, 'roll', member.name, `ergueu o Escudo: defesa 1d20 = ${randomInt(1, 21)}.`)
-        } else {
-          addEvent(room, 'roll', member.name, `lançou o Pergaminho: magia 1d20 = ${randomInt(1, 21)}.`)
+    if (action === 'item') {
+      if (member.role !== 'master') return sendJson(res, 403, { error: 'Só o Mestre pode criar ou remover itens.' })
+      const target = room.members.get(body?.targetId as string)
+      if (!target || target.role !== 'player') return sendJson(res, 400, { error: 'Escolha um jogador.' })
+      if (body?.op === 'remove') {
+        const index = target.items.findIndex(item => item.id === body.itemId)
+        if (index < 0) return sendJson(res, 404, { error: 'Item não encontrado.' })
+        const [removed] = target.items.splice(index, 1)
+        addEvent(room, 'system', 'Sistema', `${member.name} retirou ${removed.name} de ${target.name}.`)
+        return sendJson(res, 200, snapshot(room))
+      }
+      if (body?.op !== 'create') return sendJson(res, 400, { error: 'Ação inválida.' })
+      const kind = body.kind as ItemKind
+      const effect = body.effect as ItemEffect
+      const width = body.width as number
+      const height = body.height as number
+      const power = body.power as number
+      const uses = body.uses as number
+      if (!validText(body.name, 40) || typeof body.description !== 'string' || body.description.length > 180 ||
+        !['sword', 'shield', 'potion', 'scroll', 'misc'].includes(kind) ||
+        !['none', 'roll', 'heal'].includes(effect) ||
+        !Number.isInteger(width) || width < 1 || width > 6 ||
+        !Number.isInteger(height) || height < 1 || height > 6 ||
+        !Number.isInteger(uses) || uses < 0 || uses > 20 ||
+        !Number.isInteger(power) || (effect === 'heal' && (power < 1 || power > 10)) ||
+        (effect === 'roll' && !allowedDice.has(power))) {
+        return sendJson(res, 400, { error: 'Confira nome, tamanho, efeito e usos do item.' })
+      }
+      const item: InventoryItem = {
+        id: randomUUID(), kind, name: (body.name as string).trim(),
+        description: body.description.trim(), effect, power: effect === 'none' ? 0 : power,
+        uses, width, height, x: 0, y: 0,
+      }
+      let placed = false
+      for (let y = 0; y <= 6 - height && !placed; y++) {
+        for (let x = 0; x <= 6 - width; x++) {
+          item.x = x
+          item.y = y
+          if (!target.items.some(other => overlaps(item, other))) {
+            placed = true
+            break
+          }
         }
-        if (item.kind === 'potion' || item.kind === 'scroll') member.items = member.items.filter(entry => entry.id !== item.id)
+      }
+      if (!placed) return sendJson(res, 409, { error: 'Não há espaço livre para esse item no inventário.' })
+      target.items.push(item)
+      addEvent(room, 'system', 'Sistema', `${member.name} entregou ${item.name} para ${target.name}.`)
+      return sendJson(res, 200, snapshot(room))
+    }
+    if (action === 'inventory') {
+      const target = member.role === 'master' ? room.members.get(body?.targetId as string) : member
+      if (!target || target.role !== 'player') return sendJson(res, 403, { error: 'Escolha um inventário de jogador.' })
+      const item = target.items.find(entry => entry.id === body?.itemId)
+      if (!item) return sendJson(res, 403, { error: 'Você só pode usar ou organizar itens permitidos.' })
+      if (body?.op === 'use') {
+        if (member.id !== target.id) return sendJson(res, 403, { error: 'Só o dono pode usar o item.' })
+        if (item.effect === 'heal') {
+          if (target.hp >= 10) return sendJson(res, 409, { error: 'Seus PV já estão completos.' })
+          const healed = Math.min(item.power, 10 - target.hp)
+          target.hp += healed
+          addEvent(room, 'system', target.name, `usou ${item.name} e recuperou ${healed} PV.`)
+        } else if (item.effect === 'roll') {
+          addEvent(room, 'roll', target.name, `usou ${item.name}: 1d${item.power} = ${randomInt(1, item.power + 1)}.`)
+        } else {
+          addEvent(room, 'system', target.name, `usou ${item.name}${item.description ? `: ${item.description}` : '.'}`)
+        }
+        if (item.uses > 0) {
+          item.uses--
+          if (item.uses === 0) target.items = target.items.filter(entry => entry.id !== item.id)
+        }
         return sendJson(res, 200, snapshot(room))
       }
       if (body?.op !== 'move' && body?.op !== 'rotate') return sendJson(res, 400, { error: 'Movimento inválido.' })
@@ -286,7 +330,7 @@ export async function roomMiddleware(req: IncomingMessage, res: ServerResponse, 
         candidate.height = item.width
       }
       if (candidate.x < 0 || candidate.y < 0 || candidate.x + candidate.width > 6 || candidate.y + candidate.height > 6) return sendJson(res, 409, { error: 'O item não cabe nessa posição.' })
-      if (member.items.some(other => other.id !== item.id && overlaps(candidate, other))) return sendJson(res, 409, { error: 'Esse espaço já está ocupado.' })
+      if (target.items.some(other => other.id !== item.id && overlaps(candidate, other))) return sendJson(res, 409, { error: 'Esse espaço já está ocupado.' })
       Object.assign(item, candidate)
       return sendJson(res, 200, snapshot(room))
     }

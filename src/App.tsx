@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { ChangeEvent, DragEvent, FormEvent, MouseEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, DragEvent, FormEvent, MouseEvent, PointerEvent } from 'react'
 import { ItemArt } from './ItemArt'
 import './App.css'
 
@@ -9,7 +9,11 @@ type InventoryItem = {
   id: string
   name: string
   icon: string
-  kind: 'sword' | 'shield' | 'potion' | 'scroll'
+  kind: 'sword' | 'shield' | 'potion' | 'scroll' | 'misc'
+  description: string
+  effect: 'none' | 'roll' | 'heal'
+  power: number
+  uses: number
   x: number
   y: number
   width: number
@@ -111,12 +115,26 @@ function App() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [mapMode, setMapMode] = useState<'tokens' | 'pan'>('tokens')
+  const [showGrid, setShowGrid] = useState(false)
+  const panAnchor = useRef<{ x: number; y: number } | null>(null)
+  const [itemName, setItemName] = useState('')
+  const [itemDescription, setItemDescription] = useState('')
+  const [itemKind, setItemKind] = useState<InventoryItem['kind']>('misc')
+  const [itemWidth, setItemWidth] = useState(1)
+  const [itemHeight, setItemHeight] = useState(1)
+  const [itemEffect, setItemEffect] = useState<InventoryItem['effect']>('none')
+  const [itemPower, setItemPower] = useState(2)
+  const [itemUses, setItemUses] = useState(0)
+  const [itemRecipientId, setItemRecipientId] = useState('')
   const players = room?.members ?? []
   const isMaster = players.find((member) => member.id === clientId)?.role === 'master'
   const inventoryOwner = players.find((member) => member.role === 'player' && member.id === inventoryOwnerId)
     ?? players.find((member) => member.role === 'player' && member.id === clientId)
     ?? players.find((member) => member.role === 'player')
-  const canEditInventory = inventoryOwner?.id === clientId
+  const canEditInventory = inventoryOwner?.id === clientId || isMaster
   const selectedItem = canEditInventory ? inventoryOwner?.items.find((item) => item.id === selectedItemId) : undefined
   const selectedToken = room?.tokens?.find((token) => token.id === selectedTokenId)
   function assetUrl(id: string) {
@@ -256,6 +274,7 @@ function App() {
   }
 
   function placeToken(event: MouseEvent<HTMLDivElement>) {
+    if (mapMode === 'pan') return
     if (isMaster && selectedToken && !pending) void gameAction('token', { op: 'move', tokenId: selectedToken.id, ...mapPosition(event) })
   }
 
@@ -265,9 +284,41 @@ function App() {
     if (isMaster && tokenId && !pending) void gameAction('token', { op: 'move', tokenId, ...mapPosition(event) })
   }
 
+  function beginPan(event: PointerEvent<HTMLDivElement>) {
+    if (mapMode !== 'pan') return
+    panAnchor.current = { x: event.clientX - pan.x, y: event.clientY - pan.y }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function movePan(event: PointerEvent<HTMLDivElement>) {
+    if (mapMode === 'pan' && panAnchor.current) setPan({ x: event.clientX - panAnchor.current.x, y: event.clientY - panAnchor.current.y })
+  }
+
+  function endPan(event: PointerEvent<HTMLDivElement>) {
+    panAnchor.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  async function createItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!isMaster || !itemName.trim()) return
+    const targetId = itemRecipientId || players.find((member) => member.role === 'player')?.id
+    if (!targetId) return
+    if (await gameAction('item', {
+      op: 'create', targetId, name: itemName.trim(), description: itemDescription.trim(),
+      kind: itemKind, width: itemWidth, height: itemHeight, effect: itemEffect,
+      power: itemEffect === 'none' ? 0 : itemPower, uses: itemUses,
+    })) {
+      setItemName('')
+      setItemDescription('')
+      setInventoryOwnerId(targetId)
+      setSelectedItemId(null)
+    }
+  }
+
   async function moveInventoryItem(itemId: string, x: number, y: number) {
     if (!canEditInventory || pending) return
-    await gameAction('inventory', { op: 'move', itemId, x, y })
+    await gameAction('inventory', { op: 'move', targetId: inventoryOwner?.id, itemId, x, y })
   }
 
   function dropInventoryItem(event: DragEvent<HTMLDivElement>) {
@@ -313,6 +364,10 @@ function App() {
     setInventoryOwnerId(clientId)
     setSelectedItemId(null)
     setSelectedTokenId(null)
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+    setMapMode('tokens')
+    setShowGrid(false)
     setAvatarFile(null)
     setError('')
     setScreen('home')
@@ -684,10 +739,78 @@ function App() {
               <div className="gameCode">CÓDIGO <strong>{room.code}</strong></div>
             </div>
 
+            <section className="mapPanel" aria-label="Mapa da aventura">
+              <div className="mapHeader">
+                <div>
+                  <span className="eyebrow">CENÁRIO COMPARTILHADO</span>
+                  <h3>Mapa da aventura</h3>
+                  <p>{isMaster ? 'Carregue um PNG e coloque os tokens. Selecione um token e toque no mapa para mover.' : 'O Mestre controla o mapa e os tokens da aventura.'}</p>
+                </div>
+                {isMaster && <div className="mapTools">
+                  <label className="mapUpload">
+                    {room.mapAssetId ? 'Trocar mapa PNG' : 'Carregar mapa PNG'}
+                    <input type="file" accept="image/png" disabled={pending} onChange={(event) => void uploadGameImage('map', event)} />
+                  </label>
+                  <label className={`mapUpload tokenUpload ${!room.mapAssetId ? 'disabled' : ''}`}>
+                    Adicionar token
+                    <input type="file" accept="image/png,image/jpeg,image/webp" disabled={pending || !room.mapAssetId} onChange={(event) => void uploadGameImage('token', event)} />
+                  </label>
+                </div>}
+              </div>
+              <div className="mapNav" role="group" aria-label="Controles do mapa">
+                <button type="button" className={mapMode === 'tokens' ? 'active' : ''} onClick={() => setMapMode('tokens')}>Tokens</button>
+                <button type="button" className={mapMode === 'pan' ? 'active' : ''} onClick={() => setMapMode('pan')}>Arrastar mapa</button>
+                <button type="button" className={showGrid ? 'active' : ''} aria-pressed={showGrid} onClick={() => setShowGrid((value) => !value)}>Grade</button>
+                <span className="mapNavDivider" />
+                <button type="button" aria-label="Diminuir zoom" onClick={() => setZoom((value) => Math.max(.5, +(value - .25).toFixed(2)))}>−</button>
+                <span className="zoomValue">{Math.round(zoom * 100)}%</span>
+                <button type="button" aria-label="Aumentar zoom" onClick={() => setZoom((value) => Math.min(3, +(value + .25).toFixed(2)))}>+</button>
+                <button type="button" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}>Centralizar</button>
+              </div>
+              <div
+                className={`mapViewport ${mapMode === 'pan' ? 'panMode' : ''}`}
+                onPointerDown={beginPan}
+                onPointerMove={movePan}
+                onPointerUp={endPan}
+                onPointerCancel={endPan}
+              >
+              {room.mapAssetId ? (
+                <div
+                  className={`mapStage ${isMaster && selectedToken ? 'canPlace' : ''}`}
+                  style={{ aspectRatio: `${room.mapWidth ?? 16} / ${room.mapHeight ?? 10}`, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+                  onClick={placeToken}
+                  onDragOver={(event) => { if (isMaster) event.preventDefault() }}
+                  onDrop={dropToken}
+                >
+                  <img className="mapImage" src={assetUrl(room.mapAssetId)} alt="Mapa da aventura" draggable={false} />
+                  {showGrid && <div className="mapGridOverlay" aria-hidden="true" />}
+                  {room.tokens.map((token) => (
+                    <button
+                      key={token.id}
+                      type="button"
+                      className={`mapToken ${selectedToken?.id === token.id ? 'selected' : ''}`}
+                      style={{ left: `${token.x}%`, top: `${token.y}%` }}
+                      aria-label={`Token ${token.name}`}
+                      aria-pressed={selectedToken?.id === token.id}
+                      draggable={isMaster && !pending}
+                      onDragStart={(event) => { event.dataTransfer.setData('text/plain', token.id); setSelectedTokenId(token.id) }}
+                      onClick={(event) => { event.stopPropagation(); if (isMaster) setSelectedTokenId(token.id) }}
+                    >
+                      <img src={assetUrl(token.assetId)} alt="" draggable={false} />
+                    </button>
+                  ))}
+                </div>
+              ) : <div className="mapEmpty"><span aria-hidden="true">✧</span><strong>O cenário ainda não foi revelado</strong><p>{isMaster ? 'Carregue um mapa PNG para começar.' : 'Aguarde o Mestre carregar um mapa.'}</p></div>}
+              </div>
+              {room.tokens.length > 0 && <div className="tokenRoster">
+                {room.tokens.map((token) => <button key={token.id} type="button" className={selectedToken?.id === token.id ? 'active' : ''} disabled={!isMaster || mapMode === 'pan'} onClick={() => setSelectedTokenId(token.id)}><img src={assetUrl(token.assetId)} alt="" />{token.name}</button>)}
+                {isMaster && selectedToken && <button type="button" className="removeToken" disabled={pending} onClick={() => { void gameAction('token', { op: 'remove', tokenId: selectedToken.id }); setSelectedTokenId(null) }}>Remover token</button>}
+              </div>}
+            </section>
             <div className="gameGrid">
               <aside className="gameSidebar">
                 <h3>Personagens</h3>
-                <p className="masterHint">O Mestre controla PV. Jogadores também podem recuperar os próprios PV com uma poção.</p>
+                <p className="masterHint">O Mestre controla PV. Itens de cura definidos por ele também podem recuperar PV.</p>
                 {players.map((member) => (
                   <div className="characterCard" key={member.id}>
                     <div className="characterTop">
@@ -735,63 +858,30 @@ function App() {
                 </section>
               </div>
             </div>
-            <section className="mapPanel" aria-label="Mapa da aventura">
-              <div className="mapHeader">
-                <div>
-                  <span className="eyebrow">CENÁRIO COMPARTILHADO</span>
-                  <h3>Mapa da aventura</h3>
-                  <p>{isMaster ? 'Carregue um PNG e coloque os tokens. Selecione um token e toque no mapa para mover.' : 'O Mestre controla o mapa e os tokens da aventura.'}</p>
-                </div>
-                {isMaster && <div className="mapTools">
-                  <label className="mapUpload">
-                    {room.mapAssetId ? 'Trocar mapa PNG' : 'Carregar mapa PNG'}
-                    <input type="file" accept="image/png" disabled={pending} onChange={(event) => void uploadGameImage('map', event)} />
-                  </label>
-                  <label className={`mapUpload tokenUpload ${!room.mapAssetId ? 'disabled' : ''}`}>
-                    Adicionar token
-                    <input type="file" accept="image/png,image/jpeg,image/webp" disabled={pending || !room.mapAssetId} onChange={(event) => void uploadGameImage('token', event)} />
-                  </label>
-                </div>}
-              </div>
-              {room.mapAssetId ? (
-                <div
-                  className={`mapStage ${isMaster && selectedToken ? 'canPlace' : ''}`}
-                  style={{ aspectRatio: `${room.mapWidth ?? 16} / ${room.mapHeight ?? 10}` }}
-                  onClick={placeToken}
-                  onDragOver={(event) => { if (isMaster) event.preventDefault() }}
-                  onDrop={dropToken}
-                >
-                  <img className="mapImage" src={assetUrl(room.mapAssetId)} alt="Mapa da aventura" draggable={false} />
-                  {room.tokens.map((token) => (
-                    <button
-                      key={token.id}
-                      type="button"
-                      className={`mapToken ${selectedToken?.id === token.id ? 'selected' : ''}`}
-                      style={{ left: `${token.x}%`, top: `${token.y}%` }}
-                      aria-label={`Token ${token.name}`}
-                      aria-pressed={selectedToken?.id === token.id}
-                      draggable={isMaster && !pending}
-                      onDragStart={(event) => { event.dataTransfer.setData('text/plain', token.id); setSelectedTokenId(token.id) }}
-                      onClick={(event) => { event.stopPropagation(); if (isMaster) setSelectedTokenId(token.id) }}
-                    >
-                      <img src={assetUrl(token.assetId)} alt="" draggable={false} />
-                    </button>
-                  ))}
-                </div>
-              ) : <div className="mapEmpty"><span aria-hidden="true">✧</span><strong>O cenário ainda não foi revelado</strong><p>{isMaster ? 'Carregue um mapa PNG para começar.' : 'Aguarde o Mestre carregar um mapa.'}</p></div>}
-              {room.tokens.length > 0 && <div className="tokenRoster">
-                {room.tokens.map((token) => <button key={token.id} type="button" className={selectedToken?.id === token.id ? 'active' : ''} disabled={!isMaster} onClick={() => setSelectedTokenId(token.id)}><img src={assetUrl(token.assetId)} alt="" />{token.name}</button>)}
-                {isMaster && selectedToken && <button type="button" className="removeToken" disabled={pending} onClick={() => { void gameAction('token', { op: 'remove', tokenId: selectedToken.id }); setSelectedTokenId(null) }}>Remover token</button>}
-              </div>}
-            </section>
             <section className="inventoryPanel" aria-label="Inventário">
               <div className="inventoryHeader">
                 <div>
                   <span className="eyebrow">MOCHILA DA AVENTURA</span>
                   <h3>Inventário 6×6</h3>
                 </div>
-                <p>Selecione um item e toque em um espaço. No computador, você também pode arrastar.</p>
+                <p>O Mestre cria e entrega itens. Cada jogador organiza e usa os seus.</p>
               </div>
+              {isMaster && <form className="itemCreator" onSubmit={createItem}>
+                <div className="itemCreatorTitle">
+                  <strong>Criar item para jogador</strong>
+                  <span>Defina o que existe na aventura.</span>
+                </div>
+                <label>Nome do item<input value={itemName} onChange={(event) => setItemName(event.target.value)} maxLength={40} placeholder="Ex.: Lâmina de Valebruma" required /></label>
+                <label>Entregar para<select value={itemRecipientId || players.find((member) => member.role === 'player')?.id || ''} onChange={(event) => setItemRecipientId(event.target.value)}>{players.filter((member) => member.role === 'player').map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+                <label className="creatorWide">Descrição<input value={itemDescription} onChange={(event) => setItemDescription(event.target.value)} maxLength={180} placeholder="O que esse item faz na história?" /></label>
+                <label>Aparência<select value={itemKind} onChange={(event) => setItemKind(event.target.value as InventoryItem['kind'])}><option value="misc">Artefato</option><option value="sword">Arma</option><option value="shield">Defesa</option><option value="potion">Frasco</option><option value="scroll">Pergaminho</option></select></label>
+                <label>Efeito<select value={itemEffect} onChange={(event) => { const effect = event.target.value as InventoryItem['effect']; setItemEffect(effect); setItemPower(effect === 'roll' ? 4 : 2) }}><option value="none">Narrativo</option><option value="roll">Rolar dado</option><option value="heal">Recuperar PV</option></select></label>
+                <label>Largura<select value={itemWidth} onChange={(event) => setItemWidth(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((size) => <option key={size} value={size}>{size} espaços</option>)}</select></label>
+                <label>Altura<select value={itemHeight} onChange={(event) => setItemHeight(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((size) => <option key={size} value={size}>{size} espaços</option>)}</select></label>
+                {itemEffect !== 'none' && <label>{itemEffect === 'heal' ? 'PV recuperados' : 'Dado'}<select value={itemPower} onChange={(event) => setItemPower(Number(event.target.value))}>{(itemEffect === 'heal' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [4, 6, 8, 10, 12, 20, 100]).map((value) => <option key={value} value={value}>{itemEffect === 'heal' ? value : `d${value}`}</option>)}</select></label>}
+                <label>Usos<select value={itemUses} onChange={(event) => setItemUses(Number(event.target.value))}><option value={0}>Ilimitados</option>{[1, 2, 3, 4, 5, 10, 20].map((value) => <option key={value} value={value}>{value} {value === 1 ? 'uso' : 'usos'}</option>)}</select></label>
+                <button className="createItemButton" type="submit" disabled={pending || !itemName.trim()}>Entregar item</button>
+              </form>}
               <div className="inventoryTabs" role="group" aria-label="Inventário de personagem">
                 {players.filter((member) => member.role === 'player').map((member) => (
                   <button
@@ -846,30 +936,37 @@ function App() {
                 </div>
                 <div className="inventoryDetails">
                   <strong>{inventoryOwner?.name ?? 'Personagem'}</strong>
-                  <span>{canEditInventory ? 'Sua mochila' : 'Apenas visualização'}</span>
-                  <ul>
-                    {inventoryOwner?.items.map((item) => (
-                      <li key={item.id}><span><ItemArt kind={item.kind} /> {item.name}</span><span>{item.width}×{item.height}</span></li>
+                  <span>{isMaster ? 'Controle do Mestre' : canEditInventory ? 'Sua mochila' : 'Apenas visualização'}</span>
+                  {inventoryOwner?.items.length ? <ul>
+                    {inventoryOwner.items.map((item) => (
+                      <li key={item.id}><span><ItemArt kind={item.kind} /> {item.name}</span><span>{item.uses ? `${item.uses} uso(s)` : '∞'} · {item.width}×{item.height}</span></li>
                     ))}
-                  </ul>
+                  </ul> : <p className="emptyInventory">Nenhum item ainda. O Mestre pode criar e entregar um.</p>}
+                  {selectedItem && <p className="itemDescription">{selectedItem.description || 'Sem descrição adicional.'}</p>}
                   {canEditInventory && <div className="itemActions">
                     <button
                       className="rotateButton"
                       type="button"
                       disabled={!selectedItem || pending}
-                      onClick={() => { if (selectedItem) void gameAction('inventory', { op: 'rotate', itemId: selectedItem.id }) }}
+                      onClick={() => { if (selectedItem) void gameAction('inventory', { op: 'rotate', targetId: inventoryOwner?.id, itemId: selectedItem.id }) }}
                     >
                       Girar {selectedItem?.name ?? 'item'} ↻
                     </button>
-                    <button
+                    {!isMaster && <button
                       className="useButton"
                       type="button"
-                      disabled={!selectedItem || pending || (selectedItem.kind === 'potion' && inventoryOwner?.hp === 10)}
+                      disabled={!selectedItem || pending || (selectedItem.effect === 'heal' && inventoryOwner?.hp === 10)}
                       onClick={() => { if (selectedItem) void gameAction('inventory', { op: 'use', itemId: selectedItem.id }) }}
                     >
                       Usar {selectedItem?.name ?? 'item'}
-                    </button>
-                    <p>{selectedItem?.kind === 'potion' ? 'Recupera até 2 PV e é consumida.' : selectedItem?.kind === 'scroll' ? 'Rola magia d20 e é consumido.' : selectedItem ? 'Rola um teste d20 no histórico da mesa.' : 'Selecione um item para ver sua ação.'}</p>
+                    </button>}
+                    {isMaster && <button
+                      className="removeItemButton"
+                      type="button"
+                      disabled={!selectedItem || pending}
+                      onClick={() => { if (selectedItem) { void gameAction('item', { op: 'remove', targetId: inventoryOwner?.id, itemId: selectedItem.id }); setSelectedItemId(null) } }}
+                    >Retirar item</button>}
+                    <p>{selectedItem ? selectedItem.effect === 'heal' ? `Recupera até ${selectedItem.power} PV.` : selectedItem.effect === 'roll' ? `Rola 1d${selectedItem.power} no histórico.` : 'Efeito narrativo registrado no histórico.' : 'Selecione um item para ver sua ação.'}</p>
                   </div>}
                 </div>
               </div>
@@ -880,7 +977,7 @@ function App() {
       </section>
 
       <footer>
-        LACUCU VTT • V0.4
+        LACUCU VTT • V0.5
       </footer>
     </main>
   )
