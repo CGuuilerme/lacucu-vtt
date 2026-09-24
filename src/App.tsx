@@ -1,14 +1,25 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { DragEvent, FormEvent } from 'react'
 import './App.css'
 
 type Screen = 'home' | 'create' | 'join' | 'lobby' | 'game'
+
+type InventoryItem = {
+  id: string
+  name: string
+  icon: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 type Player = {
   id: string
   name: string
   role: 'master' | 'player'
   hp: number
+  items: InventoryItem[]
 }
 
 type GameEvent = {
@@ -64,8 +75,13 @@ function App() {
   const [pending, setPending] = useState(false)
   const [chatMessage, setChatMessage] = useState('')
   const [clientId, setClientId] = useState(getClientId)
+  const [inventoryOwnerId, setInventoryOwnerId] = useState(clientId)
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const players = room?.members ?? []
   const isMaster = players.find((member) => member.id === clientId)?.role === 'master'
+  const inventoryOwner = players.find((member) => member.id === inventoryOwnerId) ?? players.find((member) => member.id === clientId)
+  const canEditInventory = inventoryOwner?.id === clientId
+  const selectedItem = canEditInventory ? inventoryOwner?.items.find((item) => item.id === selectedItemId) : undefined
 
   useEffect(() => {
     const savedCode = sessionStorage.getItem('lacucu-room-code')
@@ -168,6 +184,20 @@ function App() {
     }
   }
 
+  async function moveInventoryItem(itemId: string, x: number, y: number) {
+    if (!canEditInventory || pending) return
+    await gameAction('inventory', { op: 'move', itemId, x, y })
+  }
+
+  function dropInventoryItem(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const itemId = event.dataTransfer.getData('text/plain')
+    const board = event.currentTarget.getBoundingClientRect()
+    const x = Math.floor((event.clientX - board.left) / (board.width / 6))
+    const y = Math.floor((event.clientY - board.top) / (board.height / 6))
+    if (itemId) void moveInventoryItem(itemId, x, y)
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const text = chatMessage.trim()
@@ -199,6 +229,8 @@ function App() {
     setMasterName('')
     setPlayerName('')
     setRoomCode('')
+    setInventoryOwnerId(clientId)
+    setSelectedItemId(null)
     setError('')
     setScreen('home')
   }
@@ -603,13 +635,94 @@ function App() {
                 </section>
               </div>
             </div>
+            <section className="inventoryPanel" aria-label="Inventário">
+              <div className="inventoryHeader">
+                <div>
+                  <span className="eyebrow">MOCHILA DA AVENTURA</span>
+                  <h3>Inventário 6×6</h3>
+                </div>
+                <p>Selecione um item e toque em um espaço. No computador, você também pode arrastar.</p>
+              </div>
+              <div className="inventoryTabs" role="group" aria-label="Inventário de personagem">
+                {players.map((member) => (
+                  <button
+                    key={member.id}
+                    type="button"
+                    className={inventoryOwner?.id === member.id ? 'active' : ''}
+                    aria-pressed={inventoryOwner?.id === member.id}
+                    onClick={() => { setInventoryOwnerId(member.id); setSelectedItemId(null) }}
+                  >
+                    {member.name}{member.id === clientId ? ' (você)' : ''}
+                  </button>
+                ))}
+              </div>
+              <div className="inventoryContent">
+                <div
+                  className="inventoryBoard"
+                  aria-label={`Inventário de ${inventoryOwner?.name ?? 'personagem'}`}
+                  onDragOver={(event) => { if (canEditInventory) event.preventDefault() }}
+                  onDrop={dropInventoryItem}
+                >
+                  {Array.from({ length: 36 }, (_, index) => {
+                    const x = index % 6
+                    const y = Math.floor(index / 6)
+                    return (
+                      <button
+                        key={index}
+                        type="button"
+                        className="inventoryCell"
+                        style={{ gridColumn: x + 1, gridRow: y + 1 }}
+                        aria-label={`Espaço ${x + 1}, ${y + 1}`}
+                        disabled={!canEditInventory || !selectedItem || pending}
+                        onClick={() => { if (selectedItem) void moveInventoryItem(selectedItem.id, x, y) }}
+                      />
+                    )
+                  })}
+                  {inventoryOwner?.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`inventoryItem ${selectedItem?.id === item.id ? 'selected' : ''}`}
+                      style={{ gridColumn: `${item.x + 1} / span ${item.width}`, gridRow: `${item.y + 1} / span ${item.height}` }}
+                      aria-label={`${item.name}, ${item.width} por ${item.height}, coluna ${item.x + 1}, linha ${item.y + 1}`}
+                      aria-pressed={selectedItem?.id === item.id}
+                      draggable={canEditInventory && !pending}
+                      onDragStart={(event) => { event.dataTransfer.setData('text/plain', item.id); setSelectedItemId(item.id) }}
+                      onClick={() => { if (canEditInventory) setSelectedItemId(item.id) }}
+                    >
+                      <span aria-hidden="true">{item.icon}</span>
+                      <small>{item.name}</small>
+                    </button>
+                  ))}
+                </div>
+                <div className="inventoryDetails">
+                  <strong>{inventoryOwner?.name ?? 'Personagem'}</strong>
+                  <span>{canEditInventory ? 'Sua mochila' : 'Apenas visualização'}</span>
+                  <ul>
+                    {inventoryOwner?.items.map((item) => (
+                      <li key={item.id}><span>{item.icon} {item.name}</span><span>{item.width}×{item.height}</span></li>
+                    ))}
+                  </ul>
+                  {canEditInventory && (
+                    <button
+                      className="rotateButton"
+                      type="button"
+                      disabled={!selectedItem || pending}
+                      onClick={() => { if (selectedItem) void gameAction('inventory', { op: 'rotate', itemId: selectedItem.id }) }}
+                    >
+                      Girar {selectedItem?.name ?? 'item'} ↻
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
             {error && <p className="formError" role="alert">{error}</p>}
           </div>
         )}
       </section>
 
       <footer>
-        LACUCU VTT • V0.2
+        LACUCU VTT • V0.3
       </footer>
     </main>
   )

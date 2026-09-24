@@ -3,7 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 
 type Role = 'master' | 'player'
-type Member = { id: string; name: string; role: Role; hp: number }
+type InventoryItem = { id: string; name: string; icon: string; x: number; y: number; width: number; height: number }
+type Member = { id: string; name: string; role: Role; hp: number; items: InventoryItem[] }
 type GameEvent = { id: string; kind: 'chat' | 'roll' | 'system'; name: string; text: string; time: number }
 type Room = {
   code: string
@@ -17,6 +18,20 @@ type Room = {
 const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const rooms = new Map<string, Room>()
 const allowedDice = new Set([4, 6, 8, 10, 12, 20, 100])
+
+function starterItems(): InventoryItem[] {
+  return [
+    { id: randomUUID(), name: 'Espada', icon: '⚔', x: 0, y: 0, width: 1, height: 3 },
+    { id: randomUUID(), name: 'Escudo', icon: '◈', x: 2, y: 0, width: 2, height: 2 },
+    { id: randomUUID(), name: 'Poção', icon: '✦', x: 5, y: 0, width: 1, height: 1 },
+    { id: randomUUID(), name: 'Pergaminho', icon: '▤', x: 4, y: 2, width: 1, height: 2 },
+  ]
+}
+
+function overlaps(a: InventoryItem, b: InventoryItem) {
+  return a.x < b.x + b.width && a.x + a.width > b.x &&
+    a.y < b.y + b.height && a.y + a.height > b.y
+}
 
 function sendJson(res: ServerResponse, status: number, data: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
@@ -101,13 +116,13 @@ export async function roomMiddleware(req: IncomingMessage, res: ServerResponse, 
               expiryTimers: new Map(),
             }
             const id = body.clientId as string
-            room.members.set(id, { id, name: (body.masterName as string).trim(), role: 'master', hp: 10 })
+            room.members.set(id, { id, name: (body.masterName as string).trim(), role: 'master', hp: 10, items: starterItems() })
             rooms.set(code, room)
             keepMember(room, id)
             return sendJson(res, 201, snapshot(room))
           }
 
-          const roomMatch = /^\/api\/rooms\/([A-Z0-9]{5})(?:\/(join|leave|start|chat|roll|hp))?$/.exec(url.pathname)
+          const roomMatch = /^\/api\/rooms\/([A-Z0-9]{5})(?:\/(join|leave|start|chat|roll|hp|inventory))?$/.exec(url.pathname)
           if (!roomMatch) return sendJson(res, 404, { error: 'Sala não encontrada.' })
           const [, code, action] = roomMatch
           const room = rooms.get(code)
@@ -124,7 +139,7 @@ export async function roomMiddleware(req: IncomingMessage, res: ServerResponse, 
             if (!existing && [...room.members.values()].filter(member => member.role === 'player').length >= 3) {
               return sendJson(res, 409, { error: 'A sala já tem três jogadores.' })
             }
-            if (!existing) room.members.set(id, { id, name: (body!.playerName as string).trim(), role: 'player', hp: 10 })
+            if (!existing) room.members.set(id, { id, name: (body!.playerName as string).trim(), role: 'player', hp: 10, items: starterItems() })
             keepMember(room, id)
             return sendJson(res, 200, snapshot(room))
           }
@@ -163,6 +178,32 @@ export async function roomMiddleware(req: IncomingMessage, res: ServerResponse, 
             const sides = body?.sides
             if (typeof sides !== 'number' || !allowedDice.has(sides)) return sendJson(res, 400, { error: 'Dado inválido.' })
             addEvent(room, 'roll', member.name, `rolou 1d${sides}: ${randomInt(1, sides + 1)}`)
+            return sendJson(res, 200, snapshot(room))
+          }
+          if (action === 'inventory') {
+            const item = member.items.find(entry => entry.id === body?.itemId)
+            if (!item) return sendJson(res, 403, { error: 'Você só pode organizar seu próprio inventário.' })
+            if (body?.op !== 'move' && body?.op !== 'rotate') {
+              return sendJson(res, 400, { error: 'Movimento inválido.' })
+            }
+            const candidate = { ...item }
+            if (body.op === 'move') {
+              if (!Number.isInteger(body.x) || !Number.isInteger(body.y)) {
+                return sendJson(res, 400, { error: 'Posição inválida.' })
+              }
+              candidate.x = body.x as number
+              candidate.y = body.y as number
+            } else {
+              candidate.width = item.height
+              candidate.height = item.width
+            }
+            if (candidate.x < 0 || candidate.y < 0 || candidate.x + candidate.width > 6 || candidate.y + candidate.height > 6) {
+              return sendJson(res, 409, { error: 'O item não cabe nessa posição.' })
+            }
+            if (member.items.some(other => other.id !== item.id && overlaps(candidate, other))) {
+              return sendJson(res, 409, { error: 'Esse espaço já está ocupado.' })
+            }
+            Object.assign(item, candidate)
             return sendJson(res, 200, snapshot(room))
           }
           if (action === 'hp') {

@@ -2,12 +2,13 @@
 
 Projeto para amigos de RPG: uma mesa virtual dark fantasy para jogar juntos online.
 
-## O que já funciona (v0.2)
+## O que já funciona (v0.3)
 
 - Criar uma campanha com código de cinco caracteres e entrar como Mestre ou jogador.
 - Lobby com um Mestre e até três jogadores.
 - Mesa compartilhada com chat, rolagens de d4, d6, d8, d10, d12, d20 e d100 e PV de 0 a 10.
 - Cada jogador pode reduzir os próprios PV. Só o Mestre pode restaurar PV ou alterar os PV de outro personagem. O servidor valida essa regra.
+- Inventário 6×6 compartilhado por personagem, com espada, escudo, poção e pergaminho. Cada pessoa organiza apenas a própria mochila, por toque ou arraste; é possível girar itens. O servidor impede sobreposição e itens fora da grade.
 - Interface responsiva para computador e celular.
 
 ## Rodar no computador
@@ -35,4 +36,4 @@ As salas e o histórico ficam na memória do servidor nesta versão. Reiniciar o
 
 ## Próximas melhorias
 
-Inventário 6×6 por personagem, ficha básica, persistência de campanhas e mapas com tokens.
+Ficha básica, persistência de campanhas e mapas com tokens.
