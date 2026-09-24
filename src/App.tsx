@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { DragEvent, FormEvent } from 'react'
+import type { ChangeEvent, DragEvent, FormEvent, MouseEvent } from 'react'
+import { ItemArt } from './ItemArt'
 import './App.css'
 
 type Screen = 'home' | 'create' | 'join' | 'lobby' | 'game'
@@ -8,6 +9,7 @@ type InventoryItem = {
   id: string
   name: string
   icon: string
+  kind: 'sword' | 'shield' | 'potion' | 'scroll'
   x: number
   y: number
   width: number
@@ -20,6 +22,7 @@ type Player = {
   role: 'master' | 'player'
   hp: number
   items: InventoryItem[]
+  avatarId?: string
 }
 
 type GameEvent = {
@@ -30,12 +33,18 @@ type GameEvent = {
   time: number
 }
 
+type MapToken = { id: string; name: string; assetId: string; x: number; y: number }
+
 type Room = {
   code: string
   campaignName: string
   phase: 'lobby' | 'game'
   members: Player[]
   events: GameEvent[]
+  mapAssetId?: string
+  mapWidth?: number
+  mapHeight?: number
+  tokens: MapToken[]
 }
 
 function getClientId() {
@@ -60,6 +69,29 @@ async function roomRequest(path: string, body: object): Promise<Room> {
   return data as Room
 }
 
+async function uploadRoomAsset(code: string, kind: 'avatar' | 'map' | 'token', file: Blob, clientId: string, name = ''): Promise<Room> {
+  const params = new URLSearchParams({ clientId })
+  if (name) params.set('name', name)
+  const response = await fetch(`/api/rooms/${code}/upload/${kind}?${params}`, { method: 'POST', body: file })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error || 'Não foi possível carregar a imagem.')
+  return data as Room
+}
+
+async function compactImage(file: File, size: number): Promise<Blob> {
+  if (!file.type.startsWith('image/')) throw new Error('Escolha uma imagem válida.')
+  const image = await createImageBitmap(file)
+  const scale = Math.min(1, size / Math.max(image.width, image.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  canvas.getContext('2d')!.drawImage(image, 0, 0, canvas.width, canvas.height)
+  image.close()
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', .85))
+  if (!blob) throw new Error('Não foi possível preparar a imagem.')
+  return blob
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>('home')
 
@@ -77,11 +109,19 @@ function App() {
   const [clientId, setClientId] = useState(getClientId)
   const [inventoryOwnerId, setInventoryOwnerId] = useState(clientId)
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
+  const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null)
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
   const players = room?.members ?? []
   const isMaster = players.find((member) => member.id === clientId)?.role === 'master'
-  const inventoryOwner = players.find((member) => member.id === inventoryOwnerId) ?? players.find((member) => member.id === clientId)
+  const inventoryOwner = players.find((member) => member.role === 'player' && member.id === inventoryOwnerId)
+    ?? players.find((member) => member.role === 'player' && member.id === clientId)
+    ?? players.find((member) => member.role === 'player')
   const canEditInventory = inventoryOwner?.id === clientId
   const selectedItem = canEditInventory ? inventoryOwner?.items.find((item) => item.id === selectedItemId) : undefined
+  const selectedToken = room?.tokens?.find((token) => token.id === selectedTokenId)
+  function assetUrl(id: string) {
+    return `/api/rooms/${currentRoomCode}/assets/${id}?clientId=${encodeURIComponent(clientId)}`
+  }
 
   useEffect(() => {
     const savedCode = sessionStorage.getItem('lacucu-room-code')
@@ -141,6 +181,7 @@ function App() {
       setCurrentRoomCode(created.code)
       sessionStorage.setItem('lacucu-room-code', created.code)
       setScreen('lobby')
+      if (avatarFile) setRoom(await uploadRoomAsset(created.code, 'avatar', await compactImage(avatarFile, 256), clientId))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível criar a sala.')
     } finally {
@@ -160,6 +201,7 @@ function App() {
       setCurrentRoomCode(joined.code)
       sessionStorage.setItem('lacucu-room-code', joined.code)
       setScreen('lobby')
+      if (avatarFile) setRoom(await uploadRoomAsset(joined.code, 'avatar', await compactImage(avatarFile, 256), clientId))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível entrar na sala.')
     } finally {
@@ -182,6 +224,45 @@ function App() {
     } finally {
       setPending(false)
     }
+  }
+
+  async function uploadGameImage(kind: 'map' | 'token', event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !isMaster || pending) return
+    setPending(true)
+    setError('')
+    try {
+      if (kind === 'map' && (file.type !== 'image/png' || file.size > 5_000_000)) {
+        throw new Error('Escolha um PNG de até 5 MB para o mapa.')
+      }
+      const image = kind === 'map' ? file : await compactImage(file, 512)
+      const updated = await uploadRoomAsset(currentRoomCode, kind, image, clientId, file.name.replace(/\.[^.]+$/, '').slice(0, 30))
+      setRoom(updated)
+      if (kind === 'token') setSelectedTokenId(updated.tokens.at(-1)?.id ?? null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível carregar a imagem.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  function mapPosition(event: MouseEvent<HTMLDivElement> | DragEvent<HTMLDivElement>) {
+    const box = event.currentTarget.getBoundingClientRect()
+    return {
+      x: Math.max(0, Math.min(100, Math.round((event.clientX - box.left) / box.width * 1000) / 10)),
+      y: Math.max(0, Math.min(100, Math.round((event.clientY - box.top) / box.height * 1000) / 10)),
+    }
+  }
+
+  function placeToken(event: MouseEvent<HTMLDivElement>) {
+    if (isMaster && selectedToken && !pending) void gameAction('token', { op: 'move', tokenId: selectedToken.id, ...mapPosition(event) })
+  }
+
+  function dropToken(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const tokenId = event.dataTransfer.getData('text/plain')
+    if (isMaster && tokenId && !pending) void gameAction('token', { op: 'move', tokenId, ...mapPosition(event) })
   }
 
   async function moveInventoryItem(itemId: string, x: number, y: number) {
@@ -231,6 +312,8 @@ function App() {
     setRoomCode('')
     setInventoryOwnerId(clientId)
     setSelectedItemId(null)
+    setSelectedTokenId(null)
+    setAvatarFile(null)
     setError('')
     setScreen('home')
   }
@@ -359,6 +442,12 @@ function App() {
               />
             </label>
 
+            <label className="photoPicker">
+              Foto do Mestre (opcional)
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)} />
+              <span>{avatarFile?.name ?? 'Escolher foto'}</span>
+            </label>
+
             <div className="roleCard">
               <div className="roleIcon">♛</div>
 
@@ -436,6 +525,12 @@ function App() {
               />
             </label>
 
+            <label className="photoPicker">
+              Foto do personagem (opcional)
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setAvatarFile(event.target.files?.[0] ?? null)} />
+              <span>{avatarFile?.name ?? 'Escolher foto'}</span>
+            </label>
+
             {error && <p className="formError" role="alert">{error}</p>}
 
             <button
@@ -485,7 +580,9 @@ function App() {
 
               <div className="member masterMember">
                 <div className="memberAvatar">
-                  ♛
+                  {players.find((member) => member.role === 'master')?.avatarId
+                    ? <img src={assetUrl(players.find((member) => member.role === 'master')!.avatarId!)} alt="" />
+                    : '♛'}
                 </div>
 
                 <div className="memberInfo">
@@ -508,7 +605,7 @@ function App() {
                       key={player.id}
                     >
                       <div className="memberAvatar">
-                        ⚔
+                        {player.avatarId ? <img src={assetUrl(player.avatarId)} alt="" /> : '⚔'}
                       </div>
 
                       <div className="memberInfo">
@@ -590,11 +687,14 @@ function App() {
             <div className="gameGrid">
               <aside className="gameSidebar">
                 <h3>Personagens</h3>
-                <p className="masterHint">Somente o Mestre pode restaurar PV.</p>
+                <p className="masterHint">O Mestre controla PV. Jogadores também podem recuperar os próprios PV com uma poção.</p>
                 {players.map((member) => (
                   <div className="characterCard" key={member.id}>
                     <div className="characterTop">
-                      <strong>{member.name}</strong>
+                      <div className="characterIdentity">
+                        <div className="characterPortrait">{member.avatarId ? <img src={assetUrl(member.avatarId)} alt="" /> : member.role === 'master' ? '♛' : '⚔'}</div>
+                        <strong>{member.name}</strong>
+                      </div>
                       <span>{member.role === 'master' ? 'Mestre' : 'Jogador'}</span>
                     </div>
                     <div className="healthRow">
@@ -635,6 +735,55 @@ function App() {
                 </section>
               </div>
             </div>
+            <section className="mapPanel" aria-label="Mapa da aventura">
+              <div className="mapHeader">
+                <div>
+                  <span className="eyebrow">CENÁRIO COMPARTILHADO</span>
+                  <h3>Mapa da aventura</h3>
+                  <p>{isMaster ? 'Carregue um PNG e coloque os tokens. Selecione um token e toque no mapa para mover.' : 'O Mestre controla o mapa e os tokens da aventura.'}</p>
+                </div>
+                {isMaster && <div className="mapTools">
+                  <label className="mapUpload">
+                    {room.mapAssetId ? 'Trocar mapa PNG' : 'Carregar mapa PNG'}
+                    <input type="file" accept="image/png" disabled={pending} onChange={(event) => void uploadGameImage('map', event)} />
+                  </label>
+                  <label className={`mapUpload tokenUpload ${!room.mapAssetId ? 'disabled' : ''}`}>
+                    Adicionar token
+                    <input type="file" accept="image/png,image/jpeg,image/webp" disabled={pending || !room.mapAssetId} onChange={(event) => void uploadGameImage('token', event)} />
+                  </label>
+                </div>}
+              </div>
+              {room.mapAssetId ? (
+                <div
+                  className={`mapStage ${isMaster && selectedToken ? 'canPlace' : ''}`}
+                  style={{ aspectRatio: `${room.mapWidth ?? 16} / ${room.mapHeight ?? 10}` }}
+                  onClick={placeToken}
+                  onDragOver={(event) => { if (isMaster) event.preventDefault() }}
+                  onDrop={dropToken}
+                >
+                  <img className="mapImage" src={assetUrl(room.mapAssetId)} alt="Mapa da aventura" draggable={false} />
+                  {room.tokens.map((token) => (
+                    <button
+                      key={token.id}
+                      type="button"
+                      className={`mapToken ${selectedToken?.id === token.id ? 'selected' : ''}`}
+                      style={{ left: `${token.x}%`, top: `${token.y}%` }}
+                      aria-label={`Token ${token.name}`}
+                      aria-pressed={selectedToken?.id === token.id}
+                      draggable={isMaster && !pending}
+                      onDragStart={(event) => { event.dataTransfer.setData('text/plain', token.id); setSelectedTokenId(token.id) }}
+                      onClick={(event) => { event.stopPropagation(); if (isMaster) setSelectedTokenId(token.id) }}
+                    >
+                      <img src={assetUrl(token.assetId)} alt="" draggable={false} />
+                    </button>
+                  ))}
+                </div>
+              ) : <div className="mapEmpty"><span aria-hidden="true">✧</span><strong>O cenário ainda não foi revelado</strong><p>{isMaster ? 'Carregue um mapa PNG para começar.' : 'Aguarde o Mestre carregar um mapa.'}</p></div>}
+              {room.tokens.length > 0 && <div className="tokenRoster">
+                {room.tokens.map((token) => <button key={token.id} type="button" className={selectedToken?.id === token.id ? 'active' : ''} disabled={!isMaster} onClick={() => setSelectedTokenId(token.id)}><img src={assetUrl(token.assetId)} alt="" />{token.name}</button>)}
+                {isMaster && selectedToken && <button type="button" className="removeToken" disabled={pending} onClick={() => { void gameAction('token', { op: 'remove', tokenId: selectedToken.id }); setSelectedTokenId(null) }}>Remover token</button>}
+              </div>}
+            </section>
             <section className="inventoryPanel" aria-label="Inventário">
               <div className="inventoryHeader">
                 <div>
@@ -644,7 +793,7 @@ function App() {
                 <p>Selecione um item e toque em um espaço. No computador, você também pode arrastar.</p>
               </div>
               <div className="inventoryTabs" role="group" aria-label="Inventário de personagem">
-                {players.map((member) => (
+                {players.filter((member) => member.role === 'player').map((member) => (
                   <button
                     key={member.id}
                     type="button"
@@ -690,7 +839,7 @@ function App() {
                       onDragStart={(event) => { event.dataTransfer.setData('text/plain', item.id); setSelectedItemId(item.id) }}
                       onClick={() => { if (canEditInventory) setSelectedItemId(item.id) }}
                     >
-                      <span aria-hidden="true">{item.icon}</span>
+                      <ItemArt kind={item.kind} />
                       <small>{item.name}</small>
                     </button>
                   ))}
@@ -700,10 +849,10 @@ function App() {
                   <span>{canEditInventory ? 'Sua mochila' : 'Apenas visualização'}</span>
                   <ul>
                     {inventoryOwner?.items.map((item) => (
-                      <li key={item.id}><span>{item.icon} {item.name}</span><span>{item.width}×{item.height}</span></li>
+                      <li key={item.id}><span><ItemArt kind={item.kind} /> {item.name}</span><span>{item.width}×{item.height}</span></li>
                     ))}
                   </ul>
-                  {canEditInventory && (
+                  {canEditInventory && <div className="itemActions">
                     <button
                       className="rotateButton"
                       type="button"
@@ -712,7 +861,16 @@ function App() {
                     >
                       Girar {selectedItem?.name ?? 'item'} ↻
                     </button>
-                  )}
+                    <button
+                      className="useButton"
+                      type="button"
+                      disabled={!selectedItem || pending || (selectedItem.kind === 'potion' && inventoryOwner?.hp === 10)}
+                      onClick={() => { if (selectedItem) void gameAction('inventory', { op: 'use', itemId: selectedItem.id }) }}
+                    >
+                      Usar {selectedItem?.name ?? 'item'}
+                    </button>
+                    <p>{selectedItem?.kind === 'potion' ? 'Recupera até 2 PV e é consumida.' : selectedItem?.kind === 'scroll' ? 'Rola magia d20 e é consumido.' : selectedItem ? 'Rola um teste d20 no histórico da mesa.' : 'Selecione um item para ver sua ação.'}</p>
+                  </div>}
                 </div>
               </div>
             </section>
@@ -722,7 +880,7 @@ function App() {
       </section>
 
       <footer>
-        LACUCU VTT • V0.3
+        LACUCU VTT • V0.4
       </footer>
     </main>
   )
