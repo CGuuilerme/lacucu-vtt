@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: lacucu-vtt
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 24.21.0
