@@ -119,6 +119,7 @@ function App() {
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [mapMode, setMapMode] = useState<'tokens' | 'pan'>('tokens')
   const [showGrid, setShowGrid] = useState(false)
+  const [activePanel, setActivePanel] = useState<'characters' | 'inventory' | 'chat' | 'dice' | 'master' | null>(null)
   const panAnchor = useRef<{ x: number; y: number } | null>(null)
   const [itemName, setItemName] = useState('')
   const [itemDescription, setItemDescription] = useState('')
@@ -186,6 +187,13 @@ function App() {
     const interval = setInterval(refreshRoom, 2000)
     return () => { active = false; clearInterval(interval) }
   }, [screen, currentRoomCode, clientId])
+
+  useEffect(() => {
+    if (screen !== 'game') return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setActivePanel(null) }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [screen])
 
   async function createCampaign() {
     if (!campaignName.trim() || !masterName.trim() || pending) return
@@ -368,6 +376,7 @@ function App() {
     setPan({ x: 0, y: 0 })
     setMapMode('tokens')
     setShowGrid(false)
+    setActivePanel(null)
     setAvatarFile(null)
     setError('')
     setScreen('home')
@@ -402,8 +411,8 @@ function App() {
               </h2>
 
               <p>
-                Crie campanhas, reúna seus jogadores e jogue qualquer
-                sistema de RPG em uma mesa virtual.
+                Reúna seus amigos, compartilhe mapas e conduza sua aventura
+                em uma mesa virtual livre para qualquer sistema.
               </p>
             </div>
 
@@ -510,8 +519,8 @@ function App() {
                 <strong>Mestre</strong>
 
                 <p>
-                  Controle jogadores, mapas, NPCs, itens,
-                  combates e regras da campanha.
+                  Conduza a mesa, compartilhe mapas e organize
+                  os itens da aventura.
                 </p>
               </div>
             </div>
@@ -729,34 +738,18 @@ function App() {
         )}
 
         {screen === 'game' && room && (
-          <div className="gamePage">
-            <div className="gameHeading">
-              <div>
-                <span className="eyebrow">MESA DA AVENTURA</span>
-                <h2>{room.campaignName}</h2>
-                <p>{isMaster ? 'Você é o Mestre desta mesa.' : 'Sua aventura começou.'}</p>
+          <div className="gamePage tabletopPage">
+            <header className="tabletopTopbar">
+              <div className="tabletopBrand"><div className="logo">L</div><span>LACUCU <em>VTT</em></span></div>
+              <div className="tabletopCampaign"><small>MESA COMPARTILHADA</small><strong>{room.campaignName}</strong></div>
+              <div className="tabletopPresence" aria-label="Participantes online">
+                {players.map((member) => <span key={member.id} title={member.name} className="presenceAvatar">{member.avatarId ? <img src={assetUrl(member.avatarId)} alt="" /> : member.role === 'master' ? '♛' : '⚔'}</span>)}
               </div>
-              <div className="gameCode">CÓDIGO <strong>{room.code}</strong></div>
-            </div>
-
+              <button className="tabletopCode" onClick={copyRoomCode} title="Copiar código da sala"><small>SALA</small><strong>{room.code}</strong></button>
+              <button className="tabletopExit" onClick={leaveLobby}>Sair</button>
+            </header>
+            <div className="tabletopWorkspace">
             <section className="mapPanel" aria-label="Mapa da aventura">
-              <div className="mapHeader">
-                <div>
-                  <span className="eyebrow">CENÁRIO COMPARTILHADO</span>
-                  <h3>Mapa da aventura</h3>
-                  <p>{isMaster ? 'Carregue um PNG e coloque os tokens. Selecione um token e toque no mapa para mover.' : 'O Mestre controla o mapa e os tokens da aventura.'}</p>
-                </div>
-                {isMaster && <div className="mapTools">
-                  <label className="mapUpload">
-                    {room.mapAssetId ? 'Trocar mapa PNG' : 'Carregar mapa PNG'}
-                    <input type="file" accept="image/png" disabled={pending} onChange={(event) => void uploadGameImage('map', event)} />
-                  </label>
-                  <label className={`mapUpload tokenUpload ${!room.mapAssetId ? 'disabled' : ''}`}>
-                    Adicionar token
-                    <input type="file" accept="image/png,image/jpeg,image/webp" disabled={pending || !room.mapAssetId} onChange={(event) => void uploadGameImage('token', event)} />
-                  </label>
-                </div>}
-              </div>
               <div className="mapNav" role="group" aria-label="Controles do mapa">
                 <button type="button" className={mapMode === 'tokens' ? 'active' : ''} onClick={() => setMapMode('tokens')}>Tokens</button>
                 <button type="button" className={mapMode === 'pan' ? 'active' : ''} onClick={() => setMapMode('pan')}>Arrastar mapa</button>
@@ -777,7 +770,7 @@ function App() {
               {room.mapAssetId ? (
                 <div
                   className={`mapStage ${isMaster && selectedToken ? 'canPlace' : ''}`}
-                  style={{ aspectRatio: `${room.mapWidth ?? 16} / ${room.mapHeight ?? 10}`, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+                  style={{ aspectRatio: `${room.mapWidth ?? 16} / ${room.mapHeight ?? 10}`, width: `min(100%, calc((100dvh - 64px) * ${(room.mapWidth ?? 16) / (room.mapHeight ?? 10)}))`, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
                   onClick={placeToken}
                   onDragOver={(event) => { if (isMaster) event.preventDefault() }}
                   onDrop={dropToken}
@@ -807,7 +800,36 @@ function App() {
                 {isMaster && selectedToken && <button type="button" className="removeToken" disabled={pending} onClick={() => { void gameAction('token', { op: 'remove', tokenId: selectedToken.id }); setSelectedTokenId(null) }}>Remover token</button>}
               </div>}
             </section>
-            <div className="gameGrid">
+
+              <nav className="tabletopRail" aria-label="Painéis da mesa">
+                {([
+                  ['characters', '♟', 'Pessoas'],
+                  ['inventory', '▣', 'Inventário'],
+                  ['chat', '☷', 'Chat'],
+                  ['dice', '◇', 'Dados'],
+                  ...(isMaster ? [['master', '♛', 'Mestre']] : []),
+                ] as const).map(([panel, icon, label]) => (
+                  <button
+                    key={panel}
+                    type="button"
+                    className={activePanel === panel ? 'active' : ''}
+                    aria-label={`Abrir ${label.toLowerCase()}`}
+                    aria-expanded={activePanel === panel}
+                    aria-controls="tabletop-drawer"
+                    onClick={() => setActivePanel(activePanel === panel ? null : panel as Exclude<typeof activePanel, null>)}
+                  >
+                    <span className="railGlyph" aria-hidden="true">{icon}</span>
+                    <span className="railText">{label}</span>
+                  </button>
+                ))}
+              </nav>
+              {activePanel && <aside className="tabletopDrawer" id="tabletop-drawer" aria-label={`Painel de ${activePanel}`}>
+                <div className="drawerHead">
+                  <div><small>LACUCU VTT</small><h2>{activePanel === 'characters' ? 'Personagens' : activePanel === 'inventory' ? 'Inventário' : activePanel === 'chat' ? 'Chat e histórico' : activePanel === 'dice' ? 'Dados' : 'Ferramentas do Mestre'}</h2></div>
+                  <button type="button" aria-label="Fechar painel" onClick={() => setActivePanel(null)}>×</button>
+                </div>
+                <div className="drawerBody">
+                  {activePanel === 'characters' && (
               <aside className="gameSidebar">
                 <h3>Personagens</h3>
                 <p className="masterHint">O Mestre controla PV. Itens de cura definidos por ele também podem recuperar PV.</p>
@@ -828,36 +850,10 @@ function App() {
                     </div>
                   </div>
                 ))}
-                <button className="leaveButton gameLeave" onClick={leaveLobby}>Sair da mesa</button>
               </aside>
 
-              <div className="gameMain">
-                <section className="dicePanel" aria-label="Dados">
-                  <h3>Rolar dados</h3>
-                  <div className="diceButtons">
-                    {[4, 6, 8, 10, 12, 20, 100].map((sides) => (
-                      <button key={sides} disabled={pending} onClick={() => gameAction('roll', { sides })}>d{sides}</button>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="chatPanel" aria-label="Chat da campanha">
-                  <h3>Chat e histórico</h3>
-                  <div className="chatHistory" role="log" aria-live="polite">
-                    {room.events.map((entry) => (
-                      <div className={`chatEntry ${entry.kind}`} key={entry.id}>
-                        <span>{entry.name}</span>
-                        <p>{entry.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <form className="chatForm" onSubmit={sendMessage}>
-                    <input aria-label="Mensagem" value={chatMessage} onChange={(event) => setChatMessage(event.target.value)} maxLength={500} placeholder="Escreva uma mensagem..." />
-                    <button type="submit" disabled={pending || !chatMessage.trim()}>Enviar</button>
-                  </form>
-                </section>
-              </div>
-            </div>
+                  )}
+                  {activePanel === 'inventory' && (
             <section className="inventoryPanel" aria-label="Inventário">
               <div className="inventoryHeader">
                 <div>
@@ -971,13 +967,65 @@ function App() {
                 </div>
               </div>
             </section>
-            {error && <p className="formError" role="alert">{error}</p>}
+                  )}
+                  {activePanel === 'chat' && (
+                <section className="chatPanel" aria-label="Chat da campanha">
+                  <h3>Chat e histórico</h3>
+                  <div className="chatHistory" role="log" aria-live="polite">
+                    {room.events.map((entry) => (
+                      <div className={`chatEntry ${entry.kind}`} key={entry.id}>
+                        <span>{entry.name}</span>
+                        <p>{entry.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <form className="chatForm" onSubmit={sendMessage}>
+                    <input aria-label="Mensagem" value={chatMessage} onChange={(event) => setChatMessage(event.target.value)} maxLength={500} placeholder="Escreva uma mensagem..." />
+                    <button type="submit" disabled={pending || !chatMessage.trim()}>Enviar</button>
+                  </form>
+                </section>
+                  )}
+                  {activePanel === 'dice' && (
+                <section className="dicePanel" aria-label="Dados">
+                  <h3>Rolar dados</h3>
+                  <div className="diceButtons">
+                    {[4, 6, 8, 10, 12, 20, 100].map((sides) => (
+                      <button key={sides} disabled={pending} onClick={() => gameAction('roll', { sides })}>d{sides}</button>
+                    ))}
+                  </div>
+                </section>
+
+                  )}
+                  {activePanel === 'master' && isMaster && (
+                    <section className="masterPanel">
+                      <h3>Cenário</h3>
+                      <p>Carregue um mapa PNG e adicione tokens para todos verem na mesa.</p>
+                      <div className="mapTools">
+                        <label className="mapUpload">
+                          {room.mapAssetId ? 'Trocar mapa PNG' : 'Carregar mapa PNG'}
+                          <input type="file" accept="image/png" disabled={pending} onChange={(event) => void uploadGameImage('map', event)} />
+                        </label>
+                        <label className={`mapUpload tokenUpload ${!room.mapAssetId ? 'disabled' : ''}`}>
+                          Adicionar token
+                          <input type="file" accept="image/png,image/jpeg,image/webp" disabled={pending || !room.mapAssetId} onChange={(event) => void uploadGameImage('token', event)} />
+                        </label>
+                      </div>
+                      <div className="masterDivider" />
+                      <h3>Itens dos jogadores</h3>
+                      <p>Você define o que cada personagem recebe. Crie itens no painel de inventário.</p>
+                      <button className="masterJump" type="button" onClick={() => setActivePanel('inventory')}>Abrir criação de itens →</button>
+                    </section>
+                  )}
+                </div>
+              </aside>}
+              {error && <p className="formError tabletopToast" role="alert">{error}</p>}
+            </div>
           </div>
         )}
       </section>
 
       <footer>
-        LACUCU VTT • V0.5
+        LACUCU VTT • V0.6
       </footer>
     </main>
   )

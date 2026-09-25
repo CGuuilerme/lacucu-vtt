@@ -1170,3 +1170,99 @@ button:focus-visible {
   .mapNavDivider { display: none; }
   .mapViewport { min-height: 46vh; min-height: 46svh; }
 }
+
+/* Version 0.6: full-screen virtual tabletop with contextual panels */
+.app:has(.gameWindow) { display: block; height: 100vh; height: 100dvh; padding: 0; overflow: hidden; }
+.app:has(.gameWindow) .background-grid, .app:has(.gameWindow) > footer { display: none; }
+.gameWindow { width: 100%; max-width: none; height: 100vh; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; background: #111514; }
+.gameWindow > .header { display: none; }
+.gamePage.tabletopPage { display: flex; width: 100%; height: 100%; flex-direction: column; gap: 0; padding: 0; background: #111514; }
+.tabletopTopbar { z-index: 40; display: flex; align-items: center; flex-shrink: 0; gap: 17px; height: 64px; min-width: 0; padding: 8px 17px; border-bottom: 1px solid #59452f; background: linear-gradient(100deg, #211b15, #111516 68%); box-shadow: 0 4px 18px #0008; }
+.tabletopBrand { display: flex; align-items: center; flex-shrink: 0; gap: 11px; }
+.tabletopBrand .logo { width: 36px; height: 36px; font-size: 21px; }
+.tabletopBrand > span { white-space: nowrap; color: #ead7b7; font: 700 17px Georgia, serif; letter-spacing: 1.8px; }
+.tabletopBrand em { color: #c49b5e; font-style: normal; }
+.tabletopCampaign { display: flex; flex: 1; min-width: 0; flex-direction: column; padding-left: 17px; border-left: 1px solid #5d4932; }
+.tabletopCampaign small, .tabletopCode small { color: #a58250; font-size: 9px; font-weight: 800; letter-spacing: 1.6px; }
+.tabletopCampaign strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #eee4d3; font: 400 20px Georgia, serif; }
+.tabletopPresence { display: flex; align-items: center; flex-shrink: 0; padding-left: 7px; }
+.presenceAvatar { display: grid; place-items: center; width: 32px; height: 32px; margin-left: -7px; overflow: hidden; border: 2px solid #8b6d43; border-radius: 50%; background: #292b25; color: #e3b875; font-size: 17px; }
+.presenceAvatar img { width: 100%; height: 100%; object-fit: cover; }
+.tabletopCode { display: flex; flex-shrink: 0; flex-direction: column; align-items: center; min-width: 86px; padding: 5px 11px; border: 1px solid #6b5030; border-radius: 5px; background: #241f18; cursor: pointer; }
+.tabletopCode strong { color: #edc684; font: 700 17px Georgia, serif; letter-spacing: 3px; }
+.tabletopExit { flex-shrink: 0; min-height: 35px; padding: 7px 11px; border: 1px solid #5b4c3a; border-radius: 5px; background: #25231f; color: #c7bdb0; cursor: pointer; }
+.tabletopExit:hover { border-color: #a3774a; color: #f6e5ce; }
+.tabletopWorkspace { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.tabletopWorkspace > .mapPanel { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.tabletopWorkspace .mapViewport { position: absolute; inset: 0; display: grid; place-items: center; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; background-color: #17201e; background-size: 60px 60px; }
+.tabletopWorkspace .mapViewport .mapStage { max-width: none; }
+.tabletopWorkspace .mapEmpty { width: 100%; min-height: 100%; border: 0; background: radial-gradient(circle, #3b3022, #18201e 65%); }
+.tabletopWorkspace .mapNav { position: absolute; z-index: 12; top: 14px; left: 88px; max-width: calc(100% - 120px); margin: 0; border-color: #8d6c4080; background: #151819ee; box-shadow: 0 8px 24px #0008; }
+.tabletopWorkspace .tokenRoster { position: absolute; z-index: 12; right: 16px; bottom: 16px; left: 88px; max-height: 100px; overflow-y: auto; padding: 8px; border: 1px solid #7b603e91; border-radius: 6px; background: #171a1bdc; box-shadow: 0 6px 18px #0009; }
+.tabletopRail { position: absolute; z-index: 24; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 7px; padding: 7px; border: 1px solid #7b603e8a; border-radius: 9px; background: #141819ed; box-shadow: 0 8px 24px #000a; }
+.tabletopRail button { display: flex; width: 58px; min-height: 54px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 5px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #c3b4a1; cursor: pointer; }
+.tabletopRail button:hover, .tabletopRail button.active { border-color: #a27a45; background: #44311d; color: #f5d49b; }
+.tabletopRail button:focus-visible, .drawerHead button:focus-visible { outline: 2px solid #f3cb84; outline-offset: 2px; }
+.railGlyph { font: 29px/1 Georgia, serif; }
+.railText { font-size: 9px; font-weight: 700; }
+.tabletopDrawer { position: absolute; z-index: 30; inset: 0 0 0 auto; display: flex; width: min(430px, calc(100% - 90px)); min-width: 300px; flex-direction: column; border-left: 1px solid #84663f; background: #17191a; box-shadow: -16px 0 42px #000b; }
+.drawerHead { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 14px; min-height: 71px; padding: 15px 17px; border-bottom: 1px solid #4d3d2c; background: linear-gradient(110deg, #292117, #17191a); }
+.drawerHead small { color: #ad854e; font-size: 9px; font-weight: 800; letter-spacing: 1.5px; }
+.drawerHead h2 { margin: 2px 0 0; color: #ead9bc; font: 400 25px Georgia, serif; }
+.drawerHead button { width: 36px; height: 36px; flex-shrink: 0; border: 1px solid #6f583c; border-radius: 5px; background: #31271c; color: #ead7b8; cursor: pointer; font-size: 25px; line-height: 1; }
+.drawerBody { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 16px; }
+.drawerBody > section, .drawerBody > aside { flex-shrink: 0; }
+.drawerBody .gameSidebar { display: block; }
+.drawerBody .characterCard { margin-bottom: 10px; }
+.drawerBody .chatPanel { display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.drawerBody .chatPanel h3 { display: none; }
+.drawerBody .chatHistory { flex: 1; max-height: none; min-height: 200px; }
+.drawerBody .chatForm { position: sticky; bottom: 0; padding-top: 12px; background: #17191a; }
+.drawerBody .dicePanel { margin: 0; }
+.drawerBody .inventoryPanel { display: block; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.drawerBody .inventoryHeader { display: block; margin-bottom: 15px; }
+.drawerBody .inventoryHeader .eyebrow, .drawerBody .inventoryHeader h3 { display: none; }
+.drawerBody .inventoryHeader p { max-width: none; margin: 0; }
+.drawerBody .inventoryContent { display: flex; flex-direction: column; gap: 14px; }
+.drawerBody .inventoryBoard { width: min(100%, 360px); margin-inline: auto; }
+.drawerBody .inventoryDetails { padding: 13px; }
+.drawerBody .itemCreator { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; padding: 12px; }
+.drawerBody .itemCreator .creatorWide { grid-column: 1 / -1; }
+.drawerBody .itemCreatorTitle { display: block; }
+.drawerBody .itemCreatorTitle span { display: block; margin-top: 4px; }
+.drawerBody .createItemButton { align-self: stretch; }
+.masterPanel h3 { margin: 0 0 8px; color: #e5c18c; font: 400 23px Georgia, serif; }
+.masterPanel p { margin: 0 0 18px; color: #aca092; font-size: 13px; line-height: 1.6; }
+.masterPanel .mapTools { display: grid; grid-template-columns: 1fr; width: 100%; }
+.masterPanel .mapUpload { width: 100%; }
+.masterDivider { margin: 23px 0; border-top: 1px solid #5e4930; }
+.masterJump { width: 100%; min-height: 42px; border: 1px solid #a67c49; border-radius: 5px; background: #45311c; color: #eed3a8; cursor: pointer; }
+.tabletopToast { position: absolute; z-index: 50; right: 15px; bottom: 16px; max-width: min(420px, calc(100% - 30px)); margin: 0; box-shadow: 0 8px 20px #000a; }
+@media (max-width: 700px) {
+  .tabletopTopbar { height: 58px; gap: 8px; padding: 7px 10px; }
+  .tabletopBrand .logo { width: 34px; height: 34px; }
+  .tabletopBrand > span { font-size: 13px; letter-spacing: 1px; }
+  .tabletopCampaign { padding-left: 9px; }
+  .tabletopCampaign small, .tabletopPresence { display: none; }
+  .tabletopCampaign strong { font-size: 15px; }
+  .tabletopCode { min-width: 70px; padding: 5px; }
+  .tabletopCode strong { font-size: 13px; letter-spacing: 1.5px; }
+  .tabletopExit { min-height: 33px; padding: 5px 7px; font-size: 12px; }
+  .tabletopWorkspace .mapNav { top: 10px; right: 10px; left: 10px; max-width: none; padding: 5px; gap: 4px; }
+  .tabletopWorkspace .mapNav button { min-height: 31px; padding: 5px 7px; font-size: 11px; }
+  .tabletopWorkspace .tokenRoster { right: 10px; bottom: 75px; left: 10px; }
+  .tabletopRail { top: auto; right: 0; bottom: 0; left: 0; justify-content: space-around; flex-direction: row; gap: 0; padding: 5px 7px; border-right: 0; border-bottom: 0; border-left: 0; border-radius: 0; }
+  .tabletopRail button { width: min(18vw, 72px); min-height: 56px; }
+  .railGlyph { font-size: 26px; }
+  .tabletopDrawer { top: 0; right: 0; bottom: 67px; left: 0; width: 100%; min-width: 0; border-left: 0; border-bottom: 1px solid #84663f; }
+  .drawerBody { padding: 14px; }
+  .tabletopToast { bottom: 76px; }
+}
+@media (max-width: 420px) {
+  .tabletopBrand > span { display: none; }
+  .tabletopCampaign { border-left: 0; padding-left: 0; }
+  .tabletopCampaign strong { font-size: 14px; }
+  .tabletopWorkspace .mapNav { max-height: 88px; overflow-y: auto; }
+}
+
+.gamePage.tabletopPage { align-items: stretch; }
